@@ -11,6 +11,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+#if NET7_0_OR_GREATER
+using System.Runtime.Intrinsics;
+#endif
+#if NETCOREAPP3_0_OR_GREATER
+using System.Numerics;
+#endif
 using NHibernate.Collection;
 using NHibernate.Engine;
 using NHibernate.Intercept;
@@ -363,18 +369,83 @@ namespace NHibernate.Type
 		/// <param name="session">The session from which the dirty check request originated.</param>
 		/// <param name="cancellationToken">A cancellation token that can be used to cancel the work</param>
 		/// <returns>Array containing indices of the dirty properties, or null if no properties considered dirty.</returns>
-		public static async Task<int[]> FindDirtyAsync(StandardProperty[] properties,
+		public static Task<int[]> FindDirtyAsync(StandardProperty[] properties,
 										object[] currentState,
 										object[] previousState,
 										bool[][] includeColumns,
 										ISessionImplementor session, CancellationToken cancellationToken)
 		{
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return Task.FromCanceled<int[]>(cancellationToken);
+			}
+			try
+			{
+				var span = properties.Length;
+
+				// When the number of properties fits in a ulong, track dirty indices as bits of a
+				// single ulong instead of allocating an int[] up front: this avoids an array allocation
+				// for the (common) case where few or no properties are dirty.
+				return span <= 64
+					? FindDirtyUsingBitmaskAsync(properties, currentState, previousState, includeColumns, session, span, cancellationToken)
+					: FindDirtyUsingArrayAsync(properties, currentState, previousState, includeColumns, session, span, cancellationToken);
+			}
+			catch (Exception ex)
+			{
+				return Task.FromException<int[]>(ex);
+			}
+		}
+
+		private static async Task<int[]> FindDirtyUsingBitmaskAsync(StandardProperty[] properties,
+													object[] currentState,
+													object[] previousState,
+													bool[][] includeColumns,
+													ISessionImplementor session,
+													int span, CancellationToken cancellationToken)
+		{
+			cancellationToken.ThrowIfCancellationRequested();
+			var dirtyBits = 0UL;
+			var count = 0;
+
+			for (var i = 0; i < span; i++)
+			{
+				if (await (DirtyAsync(properties, currentState, previousState, includeColumns, session, i, cancellationToken)).ConfigureAwait(false))
+				{
+					dirtyBits |= 1UL << i;
+					count++;
+				}
+			}
+
+			if (count == 0)
+			{
+				return null;
+			}
+
+			var results = new int[count];
+			var resultIndex = 0;
+			// Extract the index of each set bit, clearing the lowest set bit on each iteration.
+			while (dirtyBits != 0UL)
+			{
+				var lowestBit = dirtyBits & (~dirtyBits + 1UL);
+				results[resultIndex++] = BitIndex(lowestBit);
+				dirtyBits &= dirtyBits - 1;
+			}
+
+			return results;
+		}
+
+		private static async Task<int[]> FindDirtyUsingArrayAsync(StandardProperty[] properties,
+												object[] currentState,
+												object[] previousState,
+												bool[][] includeColumns,
+												ISessionImplementor session,
+												int span, CancellationToken cancellationToken)
+		{
 			cancellationToken.ThrowIfCancellationRequested();
 			int[] results = null;
-			int count = 0;
-			int span = properties.Length;
+			var count = 0;
 
-			for (int i = 0; i < span; i++)
+			for (var i = 0; i < span; i++)
 			{
 				var dirty = await (DirtyAsync(properties, currentState, previousState, includeColumns, session, i, cancellationToken)).ConfigureAwait(false);
 				if (dirty)
@@ -390,12 +461,10 @@ namespace NHibernate.Type
 			{
 				return null;
 			}
-			else
-			{
-				int[] trimmed = new int[count];
-				Array.Copy(results, 0, trimmed, 0, count);
-				return trimmed;
-			}
+
+			var trimmed = new int[count];
+			Array.Copy(results, 0, trimmed, 0, count);
+			return trimmed;
 		}
 
 		private static async Task<bool> DirtyAsync(StandardProperty[] properties, object[] currentState, object[] previousState, bool[][] includeColumns, ISessionImplementor session, int i, CancellationToken cancellationToken)

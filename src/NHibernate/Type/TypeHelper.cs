@@ -1,6 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+#if NET7_0_OR_GREATER
+using System.Runtime.Intrinsics;
+#endif
+#if NETCOREAPP3_0_OR_GREATER
+using System.Numerics;
+#endif
 using NHibernate.Collection;
 using NHibernate.Engine;
 using NHibernate.Intercept;
@@ -363,11 +369,80 @@ namespace NHibernate.Type
 										bool[][] includeColumns,
 										ISessionImplementor session)
 		{
-			int[] results = null;
-			int count = 0;
-			int span = properties.Length;
+			var span = properties.Length;
 
-			for (int i = 0; i < span; i++)
+			// When the number of properties fits in a ulong, track dirty indices as bits of a
+			// single ulong instead of allocating an int[] up front: this avoids an array allocation
+			// for the (common) case where few or no properties are dirty.
+			return span <= 64
+				? FindDirtyUsingBitmask(properties, currentState, previousState, includeColumns, session, span)
+				: FindDirtyUsingArray(properties, currentState, previousState, includeColumns, session, span);
+		}
+
+		private static int[] FindDirtyUsingBitmask(StandardProperty[] properties,
+													object[] currentState,
+													object[] previousState,
+													bool[][] includeColumns,
+													ISessionImplementor session,
+													int span)
+		{
+			var dirtyBits = 0UL;
+			var count = 0;
+
+			for (var i = 0; i < span; i++)
+			{
+				if (Dirty(properties, currentState, previousState, includeColumns, session, i))
+				{
+					dirtyBits |= 1UL << i;
+					count++;
+				}
+			}
+
+			if (count == 0)
+			{
+				return null;
+			}
+
+			var results = new int[count];
+			var resultIndex = 0;
+			// Extract the index of each set bit, clearing the lowest set bit on each iteration.
+			while (dirtyBits != 0UL)
+			{
+				var lowestBit = dirtyBits & (~dirtyBits + 1UL);
+				results[resultIndex++] = BitIndex(lowestBit);
+				dirtyBits &= dirtyBits - 1;
+			}
+
+			return results;
+		}
+
+		// Returns the zero-based index of the single set bit in value (a power of two).
+		private static int BitIndex(ulong value)
+		{
+#if NETCOREAPP3_0_OR_GREATER
+			return BitOperations.Log2(value);
+#else
+			var index = 0;
+			while ((value & 1UL) == 0UL)
+			{
+				value >>= 1;
+				index++;
+			}
+			return index;
+#endif
+		}
+
+		private static int[] FindDirtyUsingArray(StandardProperty[] properties,
+												object[] currentState,
+												object[] previousState,
+												bool[][] includeColumns,
+												ISessionImplementor session,
+												int span)
+		{
+			int[] results = null;
+			var count = 0;
+
+			for (var i = 0; i < span; i++)
 			{
 				var dirty = Dirty(properties, currentState, previousState, includeColumns, session, i);
 				if (dirty)
@@ -383,12 +458,10 @@ namespace NHibernate.Type
 			{
 				return null;
 			}
-			else
-			{
-				int[] trimmed = new int[count];
-				Array.Copy(results, 0, trimmed, 0, count);
-				return trimmed;
-			}
+
+			var trimmed = new int[count];
+			Array.Copy(results, 0, trimmed, 0, count);
+			return trimmed;
 		}
 
 		private static bool Dirty(StandardProperty[] properties, object[] currentState, object[] previousState, bool[][] includeColumns, ISessionImplementor session, int i)
