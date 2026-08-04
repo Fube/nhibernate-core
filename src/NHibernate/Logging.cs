@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using NHibernate.Cfg;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 
 namespace NHibernate
 {
@@ -18,6 +21,120 @@ namespace NHibernate
 		/// <param name="logLevel">level to be checked.</param>
 		/// <returns><c>true</c> if enabled.</returns>
 		bool IsEnabled(NHibernateLogLevel logLevel);
+	}
+
+	public interface INHibernateOptimizedLogger : INHibernateLogger
+	{
+		void Log<TState>(
+			NHibernateLogLevel logLevel,
+			TState state,
+			Exception exception,
+			Func<TState, Exception, string> formatter);
+	}
+
+	internal static class NHibernateLoggerMessage
+	{
+		internal static Action<ILogger, T1, Exception> Define<T1>(NHibernateLogLevel logLevel, string format) => LoggerMessage.Define<T1>(Translate(logLevel), new EventId(-1), format);
+
+		internal static Action<ILogger, T1, T2, Exception> Define<T1, T2>(NHibernateLogLevel logLevel, string format) => LoggerMessage.Define<T1, T2>(Translate(logLevel), new EventId(-1), format);
+
+		internal static class TranslatingLogger
+		{
+			internal static ILogger Create(INHibernateLogger logger)
+			{
+				if (logger is INHibernateOptimizedLogger optimizedLogger)
+				{
+					return new OptimizedLogger(optimizedLogger);
+				}
+
+				return new NormalLogger(logger);
+			}
+
+			private sealed class OptimizedLogger : ILogger
+			{
+				private readonly INHibernateOptimizedLogger _logger;
+
+				public OptimizedLogger(INHibernateOptimizedLogger logger)
+				{
+					_logger = logger;
+				}
+
+				public void Log<TState>(LogLevel logLevel, EventId _, TState state, Exception exception, Func<TState, Exception, string> formatter)
+				{
+					var level = Translate(logLevel);
+				
+					if (!_logger.IsEnabled(level))
+					{
+						return;
+					}
+					
+					_logger.Log(level, state, exception, formatter);
+				}
+
+				public bool IsEnabled(LogLevel logLevel) => _logger.IsEnabled(Translate(logLevel));
+
+				public IDisposable BeginScope<TState>(TState state) where TState : notnull => throw new NotImplementedException();
+			}
+
+			private sealed class NormalLogger : ILogger
+			{
+				private readonly INHibernateLogger _logger;
+
+				public NormalLogger(INHibernateLogger logger)
+				{
+					_logger = logger;
+				}
+
+				public void Log<TState>(LogLevel logLevel, EventId _, TState state, Exception exception, Func<TState, Exception, string> formatter)
+				{
+					var level = Translate(logLevel);
+				
+					if (!_logger.IsEnabled(level))
+					{
+						return;
+					}
+
+					var args = state as IReadOnlyCollection<KeyValuePair<string, object>>;
+					var originalFormat = args?.FirstOrDefault(x => x.Key == "OriginalFormat").Value as string;
+					var realArgs = args?.Where(x => x.Key != "OriginalFormat");
+					_logger.Log(level, new NHibernateLogValues(originalFormat, realArgs?.Select(x => x.Value).ToArray()), exception);
+				}
+
+				public bool IsEnabled(LogLevel logLevel) => _logger.IsEnabled(Translate(logLevel));
+
+				public IDisposable BeginScope<TState>(TState state) where TState : notnull => throw new NotImplementedException();
+			}
+		}
+
+		private static LogLevel Translate(NHibernateLogLevel logLevel)
+		{
+			return logLevel switch
+			{
+				NHibernateLogLevel.Trace => LogLevel.Trace,
+				NHibernateLogLevel.Debug => LogLevel.Debug,
+				NHibernateLogLevel.Info => LogLevel.Information,
+				NHibernateLogLevel.Warn => LogLevel.Warning,
+				NHibernateLogLevel.Error => LogLevel.Error,
+				NHibernateLogLevel.Fatal => LogLevel.Critical,
+				NHibernateLogLevel.None => LogLevel.None,
+				_ => throw new ArgumentOutOfRangeException(nameof(logLevel), logLevel, null)
+			};
+		}
+		
+		private static NHibernateLogLevel Translate(LogLevel logLevel)
+		{
+			return logLevel switch
+			{
+				LogLevel.Trace => NHibernateLogLevel.Trace,
+				LogLevel.Debug => NHibernateLogLevel.Debug,
+				LogLevel.Information => NHibernateLogLevel.Info,
+				LogLevel.Warning => NHibernateLogLevel.Warn,
+				LogLevel.Error => NHibernateLogLevel.Error,
+				LogLevel.Critical => NHibernateLogLevel.Fatal,
+				LogLevel.None => NHibernateLogLevel.None,
+				_ => throw new ArgumentOutOfRangeException(nameof(logLevel), logLevel, null)
+			};
+		}
 	}
 
 	/// <summary>
@@ -195,7 +312,7 @@ namespace NHibernate
 		}
 	}
 
-	internal class NoLoggingNHibernateLogger: INHibernateLogger
+	internal class NoLoggingNHibernateLogger: INHibernateLogger, INHibernateOptimizedLogger
 	{
 		public void Log(NHibernateLogLevel logLevel, NHibernateLogValues state, Exception exception)
 		{
@@ -206,6 +323,10 @@ namespace NHibernate
 			if (logLevel == NHibernateLogLevel.None) return true;
 
 			return false;
+		}
+
+		public void Log<TState>(NHibernateLogLevel logLevel, TState state, Exception exception, Func<TState, Exception, string> formatter)
+		{
 		}
 	}
 

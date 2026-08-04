@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace NHibernate
 {
@@ -150,7 +152,7 @@ namespace NHibernate
 
 	// Since 5.1
 	[Obsolete("Used only in Obsolete functions to thunk to INHibernateLoggerFactory")]
-	internal class NHibernateLoggerThunk : INHibernateLogger
+	internal class NHibernateLoggerThunk : INHibernateLogger, INHibernateOptimizedLogger
 	{
 		private readonly IInternalLogger _internalLogger;
 
@@ -229,6 +231,64 @@ namespace NHibernate
 					return _internalLogger.IsFatalEnabled;
 				case NHibernateLogLevel.None:
 					return !_internalLogger.IsFatalEnabled;
+				default:
+					throw new ArgumentOutOfRangeException(nameof(logLevel), logLevel, null);
+			}
+		}
+
+		public void Log<TState>(NHibernateLogLevel logLevel, TState state, Exception exception, Func<TState, Exception, string> formatter)
+		{
+			if (!IsEnabled(logLevel))
+				return;
+
+			
+			var args = state as IReadOnlyCollection<KeyValuePair<string, object>>;
+			var originalFormat = args?.FirstOrDefault(x => x.Key == "OriginalFormat").Value as string;
+			var realArgs = args?.Where(x => x.Key != "OriginalFormat").ToArray();
+
+			switch (logLevel)
+			{
+				case NHibernateLogLevel.Debug:
+				case NHibernateLogLevel.Trace:
+					if (exception != null)
+						_internalLogger.Debug(state, exception);
+					else if (realArgs is {Length: > 0})
+						_internalLogger.DebugFormat(originalFormat, realArgs);
+					else
+						_internalLogger.Debug(state);
+					break;
+				case NHibernateLogLevel.Info:
+					if (exception != null)
+						_internalLogger.Info(state, exception);
+					else if (realArgs is {Length: > 0})
+						_internalLogger.InfoFormat(originalFormat, realArgs);
+					else
+						_internalLogger.Info(state);
+					break;
+				case NHibernateLogLevel.Warn:
+					if (exception != null)
+						_internalLogger.Warn(state, exception);
+					else if (realArgs is {Length: > 0})
+						_internalLogger.WarnFormat(originalFormat, realArgs);
+					else
+						_internalLogger.Warn(state);
+					break;
+				case NHibernateLogLevel.Error:
+					if (exception != null)
+						_internalLogger.Error(state, exception);
+					else if (realArgs is {Length: > 0})
+						_internalLogger.ErrorFormat(originalFormat, realArgs);
+					else
+						_internalLogger.Error(state);
+					break;
+				case NHibernateLogLevel.Fatal:
+					if (exception != null)
+						_internalLogger.Fatal(state, exception);
+					else
+						_internalLogger.Fatal(state);
+					break;
+				case NHibernateLogLevel.None:
+					break;
 				default:
 					throw new ArgumentOutOfRangeException(nameof(logLevel), logLevel, null);
 			}
@@ -341,7 +401,7 @@ namespace NHibernate
 
 	// Since 5.1
 	[Obsolete("To set no-logging, use NHibernateLogger.SetLoggersFactory(default(INHibernateLoggerFactory))")]
-	public class NoLoggingInternalLogger: IInternalLogger
+	public class NoLoggingInternalLogger: IInternalLogger, INHibernateOptimizedLogger
 	{
 		public bool IsErrorEnabled
 		{
@@ -422,6 +482,19 @@ namespace NHibernate
 
 		public void WarnFormat(string format, params object[] args)
 		{
+		}
+
+		public void Log<TState>(NHibernateLogLevel logLevel, TState state, Exception exception, Func<TState, Exception, string> formatter)
+		{
+		}
+
+		public void Log(NHibernateLogLevel logLevel, NHibernateLogValues state, Exception exception)
+		{
+		}
+
+		public bool IsEnabled(NHibernateLogLevel logLevel)
+		{
+			return false;
 		}
 	}
 }

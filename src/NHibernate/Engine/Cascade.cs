@@ -1,5 +1,7 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using Microsoft.Extensions.Logging;
 using NHibernate.Collection;
 using NHibernate.Event;
 using NHibernate.Persister.Collection;
@@ -71,7 +73,15 @@ namespace NHibernate.Engine
 	/// </summary>
 	public sealed partial class Cascade
 	{
-		private static readonly INHibernateLogger log = NHibernateLogger.For(typeof(Cascade));
+		private static readonly ILogger log = NHibernateLoggerMessage.TranslatingLogger.Create(NHibernateLogger.For(typeof(Cascade)));
+
+		private static readonly Action<ILogger, CascadingAction, string, Exception> ProcessingCascadeLog = NHibernateLoggerMessage.Define<CascadingAction, string>(
+			NHibernateLogLevel.Info,
+			"processing cascade {0} for: {1}");
+		
+		private static readonly Action<ILogger, CascadingAction, string, Exception> DoneProcessingCascadeLog = NHibernateLoggerMessage.Define<CascadingAction, string>(
+			NHibernateLogLevel.Info,
+			"done processing cascade {0} for: {1}");
 
 		private CascadePoint point;
 		private readonly IEventSource eventSource;
@@ -108,7 +118,7 @@ namespace NHibernate.Engine
 		{
 			if (persister.HasCascades || action.RequiresNoCascadeChecking)
 			{
-				log.Info("processing cascade {0} for: {1}", action, persister.EntityName);
+				ProcessingCascadeLog(log, action, persister.EntityName, null);
 
 				IType[] types = persister.PropertyTypes;
 				CascadeStyle[] cascadeStyles = persister.PropertyCascadeStyles;
@@ -133,7 +143,7 @@ namespace NHibernate.Engine
 					}
 				}
 
-				log.Info("done processing cascade {0} for: {1}", action, persister.EntityName);
+				DoneProcessingCascadeLog(log, action, persister.EntityName, null);
 			}
 		}
 
@@ -280,6 +290,22 @@ namespace NHibernate.Engine
 				}
 			}
 		}
+		
+		private static readonly Action<ILogger, CascadingAction, string, Exception> CascadeForCollectionLog = NHibernateLoggerMessage.Define<CascadingAction, string>(
+			NHibernateLogLevel.Info,
+			"cascade {0} for collection: {1}");
+		
+		private static readonly Action<ILogger, CascadingAction, string, Exception> DoneCascadeForCollectionLog = NHibernateLoggerMessage.Define<CascadingAction, string>(
+			NHibernateLogLevel.Info,
+			"done cascade {0} for collection: {1}");
+		
+		private static readonly Action<ILogger, string, Exception> DeletingOrphansForCollectionLog = NHibernateLoggerMessage.Define<string>(
+			NHibernateLogLevel.Info,
+			"deleting orphans for collection: {0}");
+		
+		private static readonly Action<ILogger, string, Exception> DoneDeletingOrphansForCollectionLog = NHibernateLoggerMessage.Define<string>(
+			NHibernateLogLevel.Info,
+			"done deleting orphans for collection: {0}");
 
 		/// <summary> Cascade to the collection elements</summary>
 		private void CascadeCollectionElements(object parent, object child, CollectionType collectionType, CascadeStyle style, IType elemType, object anything, bool isCascadeDeleteEnabled)
@@ -289,12 +315,12 @@ namespace NHibernate.Engine
 
 			if (reallyDoCascade)
 			{
-				log.Info("cascade {0} for collection: {1}", action, collectionType.Role);
+				CascadeForCollectionLog(log, action, collectionType.Role, null);
 
 				foreach (object o in action.GetCascadableChildrenIterator(eventSource, collectionType, child))
 					CascadeProperty(parent, o, elemType, style, null, anything, isCascadeDeleteEnabled);
 
-				log.Info("done cascade {0} for collection: {1}", action, collectionType.Role);
+				DoneCascadeForCollectionLog(log, action, collectionType.Role, null);
 			}
 
 			var childAsPersColl = child as IPersistentCollection;
@@ -304,7 +330,7 @@ namespace NHibernate.Engine
 			if (deleteOrphans)
 			{
 				// handle orphaned entities!!
-				log.Info("deleting orphans for collection: {0}", collectionType.Role);
+				DeletingOrphansForCollectionLog(log, collectionType.Role, null);
 
 				// we can do the cast since orphan-delete does not apply to:
 				// 1. newly instantiated collections
@@ -312,9 +338,13 @@ namespace NHibernate.Engine
 				string entityName = collectionType.GetAssociatedEntityName(eventSource.Factory);
 				DeleteOrphans(entityName, childAsPersColl);
 
-				log.Info("done deleting orphans for collection: {0}", collectionType.Role);
+				DoneDeletingOrphansForCollectionLog(log, collectionType.Role, null);
 			}
 		}
+
+		private static readonly Action<ILogger, string, Exception> DeletingOrphanedEntityInstanceLog = NHibernateLoggerMessage.Define<string>(
+			NHibernateLogLevel.Info,
+			"deleting orphaned entity instance: {0}");
 
 		/// <summary> Delete any entities that were removed from the collection</summary>
 		private void DeleteOrphans(string entityName, IPersistentCollection pc)
@@ -335,7 +365,7 @@ namespace NHibernate.Engine
 			{
 				if (orphan != null)
 				{
-					log.Info("deleting orphaned entity instance: {0}", entityName);
+					DeletingOrphanedEntityInstanceLog(log, entityName, null);
 
 					eventSource.Delete(entityName, orphan, false, null);
 				}
