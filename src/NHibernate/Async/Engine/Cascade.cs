@@ -120,7 +120,7 @@ namespace NHibernate.Engine
 						if (entry?.LoadedState != null && entry.Status != Status.Saving)
 						{
 							object loadedValue;
-							if (componentPathStack.Count == 0)
+							if (componentPathStack == null || componentPathStack.Count == 0)
 							{
 								// association defined on entity
 								loadedValue = entry.GetLoadedValue(propertyName);
@@ -162,6 +162,7 @@ namespace NHibernate.Engine
 		private async Task CascadeComponentAsync(object parent, object child, IAbstractComponentType componentType, string componentPropertyName, object anything, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			componentPathStack ??= new Stack<string>();
 			componentPathStack.Push(componentPropertyName);
 			object[] children = await (componentType.GetPropertyValuesAsync(child, eventSource, cancellationToken)).ConfigureAwait(false);
 			IType[] types = componentType.Subtypes;

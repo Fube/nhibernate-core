@@ -204,10 +204,18 @@ namespace NHibernate.Event.Default
 
 		protected virtual void CascadeOnFlush(IEventSource session, IEntityPersister persister, object key, object anything)
 		{
+			var action = CascadingAction;
+			if (!persister.HasCascades && !action.RequiresNoCascadeChecking)
+			{
+				// Nothing for Cascade.CascadeOn to do for this entity: skip allocating a Cascade
+				// instance and bumping the cascade level altogether.
+				return;
+			}
+
 			session.PersistenceContext.IncrementCascadeLevel();
 			try
 			{
-				new Cascade(CascadingAction, CascadePoint.BeforeFlush, session).CascadeOn(persister, key, anything);
+				new Cascade(action, CascadePoint.BeforeFlush, session).CascadeOn(persister, key, anything);
 			}
 			finally
 			{

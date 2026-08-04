@@ -208,10 +208,18 @@ namespace NHibernate.Event.Default
 		protected virtual async Task CascadeOnFlushAsync(IEventSource session, IEntityPersister persister, object key, object anything, CancellationToken cancellationToken)
 		{
 			cancellationToken.ThrowIfCancellationRequested();
+			var action = CascadingAction;
+			if (!persister.HasCascades && !action.RequiresNoCascadeChecking)
+			{
+				// Nothing for Cascade.CascadeOn to do for this entity: skip allocating a Cascade
+				// instance and bumping the cascade level altogether.
+				return;
+			}
+
 			session.PersistenceContext.IncrementCascadeLevel();
 			try
 			{
-				await (new Cascade(CascadingAction, CascadePoint.BeforeFlush, session).CascadeOnAsync(persister, key, anything, cancellationToken)).ConfigureAwait(false);
+				await (new Cascade(action, CascadePoint.BeforeFlush, session).CascadeOnAsync(persister, key, anything, cancellationToken)).ConfigureAwait(false);
 			}
 			finally
 			{

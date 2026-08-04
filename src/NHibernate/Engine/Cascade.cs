@@ -77,7 +77,9 @@ namespace NHibernate.Engine
 		private readonly IEventSource eventSource;
 		private readonly CascadingAction action;
 
-		private readonly Stack<string> componentPathStack = new Stack<string>();
+		// Lazily created: most cascades never traverse a component, so avoid the allocation
+		// until CascadeComponent actually needs it.
+		private Stack<string> componentPathStack;
 
 		public Cascade(CascadingAction action, CascadePoint point, IEventSource eventSource)
 		{
@@ -172,7 +174,7 @@ namespace NHibernate.Engine
 						if (entry?.LoadedState != null && entry.Status != Status.Saving)
 						{
 							object loadedValue;
-							if (componentPathStack.Count == 0)
+							if (componentPathStack == null || componentPathStack.Count == 0)
 							{
 								// association defined on entity
 								loadedValue = entry.GetLoadedValue(propertyName);
@@ -218,6 +220,7 @@ namespace NHibernate.Engine
 
 		private void CascadeComponent(object parent, object child, IAbstractComponentType componentType, string componentPropertyName, object anything)
 		{
+			componentPathStack ??= new Stack<string>();
 			componentPathStack.Push(componentPropertyName);
 			object[] children = componentType.GetPropertyValues(child, eventSource);
 			IType[] types = componentType.Subtypes;
