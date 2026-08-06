@@ -90,7 +90,7 @@ namespace NHibernate.Event.Default
 			cancellationToken.ThrowIfCancellationRequested();
 			log.Debug("Processing unreferenced collections");
 
-			var list = IdentityMap.GetEntries(session.PersistenceContext.CollectionEntries);
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
 			foreach (var me in list)
 			{
 				var ce = (CollectionEntry) me.Value;
@@ -104,9 +104,9 @@ namespace NHibernate.Event.Default
 
 			log.Debug("Scheduling collection removes/(re)creates/updates");
 
-			list = IdentityMap.GetEntries(session.PersistenceContext.CollectionEntries);
+			list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
 			ActionQueue actionQueue = session.ActionQueue;
-			foreach (DictionaryEntry me in list)
+			foreach (var me in list)
 			{
 				IPersistentCollection coll = (IPersistentCollection) me.Key;
 				CollectionEntry ce = (CollectionEntry) me.Value;
@@ -148,7 +148,7 @@ namespace NHibernate.Event.Default
 			// It is safe because of how IdentityMap implements entrySet()
 			var source = @event.Session;
 
-			var list = IdentityMap.GetEntries(source.PersistenceContext.EntityEntries);
+			var list = IdentityMap<object, object>.GetEntries(source.PersistenceContext.EntityEntries);
 			foreach (var me in list)
 			{
 				// Update the status of the object and if necessary, schedule an update
@@ -176,7 +176,7 @@ namespace NHibernate.Event.Default
 			// and reset reached, doupdate, etc.
 			log.Debug("dirty checking collections");
 
-			var list = IdentityMap.GetEntries(session.PersistenceContext.CollectionEntries);
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
 			foreach (var entry in list)
 			{
 				await (((CollectionEntry) entry.Value).PreFlushAsync((IPersistentCollection) entry.Key, cancellationToken)).ConfigureAwait(false);
@@ -192,7 +192,7 @@ namespace NHibernate.Event.Default
 			log.Debug("processing flush-time cascades");
 
 			var anything = Anything;
-			var list = IdentityMap.GetEntries(session.PersistenceContext.EntityEntries);
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.EntityEntries);
 			//safe from concurrent modification because of how entryList() is implemented on IdentityMap
 			foreach (var me in list)
 			{

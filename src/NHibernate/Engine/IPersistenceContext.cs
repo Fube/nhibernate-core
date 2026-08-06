@@ -41,10 +41,10 @@ namespace NHibernate.Engine
 		IDictionary<EntityKey, object> EntitiesByKey { get; }
 
 		/// <summary> Get the mapping from entity instance to entity entry</summary>
-		IDictionary EntityEntries { get; }
+		IDictionary<object, object> EntityEntries { get; }
 
 		/// <summary> Get the mapping from collection instance to collection entry</summary>
-		IDictionary CollectionEntries { get; }
+		IDictionary<object, object> CollectionEntries { get; }
 
 		/// <summary> Get the mapping from collection key to collection instance</summary>
 		IDictionary<CollectionKey, IPersistentCollection> CollectionsByKey { get; }

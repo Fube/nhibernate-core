@@ -7,11 +7,11 @@ namespace NHibernate.Event.Default
 {
 	public class EventCache : IDictionary
 	{
-		private IDictionary entityToCopyMap = IdentityMap.Instantiate(10);
+		private IDictionary<object, object> entityToCopyMap = IdentityMap<object, object>.Instantiate(10);
 		// key is an entity involved with the operation performed by the listener;
 		// value can be either a copy of the entity or the entity itself
 	
-		private IDictionary entityToOperatedOnFlagMap = IdentityMap.Instantiate(10);
+		private IDictionary<object, object> entityToOperatedOnFlagMap = IdentityMap<object, object>.Instantiate(10);
 		// key is an entity involved with the operation performed by the listener;
 		// value is a flag indicating if the listener explicitly operates on the entity
 		
@@ -44,7 +44,11 @@ namespace NHibernate.Event.Default
 			if (entityToCopyMap.Count + index + 1 > array.Length)
 				throw new ArgumentException("The number of elements in the source ICollection<T> is greater than the available space from arrayIndex to the end of the destination array.");
 		
-			entityToCopyMap.CopyTo(array, index);
+			var i = index;
+			foreach (var entry in entityToCopyMap)
+			{
+				array.SetValue(new DictionaryEntry(entry.Key, entry.Value), i++);
+			}
 		}
 		
 		#endregion
@@ -53,7 +57,7 @@ namespace NHibernate.Event.Default
 		
 		IEnumerator IEnumerable.GetEnumerator()
 		{
-			return ((IEnumerable)entityToCopyMap).GetEnumerator();
+			return GetEnumerator();
 		}
 
 		#endregion
@@ -64,7 +68,7 @@ namespace NHibernate.Event.Default
 		{
 			get 
 			{
-				return entityToCopyMap[key];
+				return entityToCopyMap.TryGetValue(key, out var value) ? value : null;
 			}
 			set
 			{
@@ -84,12 +88,12 @@ namespace NHibernate.Event.Default
 
 		public ICollection Keys
 		{
-			get { return entityToCopyMap.Keys; }
+			get { return new CollectionAdapter(entityToCopyMap.Keys); }
 		}
 		
 		public ICollection Values
 		{
-			get { return entityToCopyMap.Values; }
+			get { return new CollectionAdapter(entityToCopyMap.Values); }
 		}
 		
 		public void Add(object key, object value)
@@ -105,7 +109,7 @@ namespace NHibernate.Event.Default
 		
 		public bool Contains(object key)
 		{
-			return entityToCopyMap.Contains(key);
+			return entityToCopyMap.ContainsKey(key);
 		}
 		
 		public void Remove(object key)
@@ -116,7 +120,7 @@ namespace NHibernate.Event.Default
 		
 		public IDictionaryEnumerator GetEnumerator()
 		{
-			return entityToCopyMap.GetEnumerator();
+			return new DictionaryEnumeratorAdapter(entityToCopyMap.GetEnumerator());
 		}
 		
 		public void Clear()
@@ -150,7 +154,12 @@ namespace NHibernate.Event.Default
 		/// <returns></returns>
 		public IDictionary InvertMap()
 		{
-			return IdentityMap.Invert(entityToCopyMap);
+			IDictionary result = IdentityMap.Instantiate(entityToCopyMap.Count);
+			foreach (var entry in entityToCopyMap)
+			{
+				result[entry.Value] = entry.Key;
+			}
+			return result;
 		}
 		
 		/// <summary>
@@ -176,10 +185,67 @@ namespace NHibernate.Event.Default
 			if (entity == null)
 				throw new ArgumentNullException("null entities are not supported", "entity");
 
-			if (!entityToOperatedOnFlagMap.Contains(entity) || !entityToCopyMap.Contains(entity))
+			if (!entityToOperatedOnFlagMap.ContainsKey(entity) || !entityToCopyMap.ContainsKey(entity))
 				throw new AssertionFailure("called EventCache.SetOperatedOn() for entity not found in EventCache");
 
 			entityToOperatedOnFlagMap[entity] = isOperatedOn;
+		}
+
+		/// <summary>
+		/// Adapts a generic <see cref="IEnumerator{T}"/> over <see cref="KeyValuePair{TKey,TValue}"/> to the
+		/// classic <see cref="IDictionaryEnumerator"/> shape expected by consumers of <see cref="EventCache"/>'s
+		/// public non-generic <see cref="IDictionary"/> implementation.
+		/// </summary>
+		private sealed class DictionaryEnumeratorAdapter : IDictionaryEnumerator
+		{
+			private readonly IEnumerator<KeyValuePair<object, object>> _wrapped;
+
+			public DictionaryEnumeratorAdapter(IEnumerator<KeyValuePair<object, object>> wrapped)
+			{
+				_wrapped = wrapped;
+			}
+
+			public bool MoveNext() => _wrapped.MoveNext();
+
+			public void Reset() => _wrapped.Reset();
+
+			public object Current => Entry;
+
+			public DictionaryEntry Entry => new DictionaryEntry(_wrapped.Current.Key, _wrapped.Current.Value);
+
+			public object Key => _wrapped.Current.Key;
+
+			public object Value => _wrapped.Current.Value;
+		}
+
+		/// <summary>
+		/// Adapts a generic <see cref="ICollection{T}"/> to the classic non-generic <see cref="ICollection"/>
+		/// shape expected for <see cref="EventCache"/>'s public <see cref="IDictionary.Keys"/>/<see cref="IDictionary.Values"/>.
+		/// </summary>
+		private sealed class CollectionAdapter : ICollection
+		{
+			private readonly ICollection<object> _wrapped;
+
+			public CollectionAdapter(ICollection<object> wrapped)
+			{
+				_wrapped = wrapped;
+			}
+
+			public int Count => _wrapped.Count;
+
+			public bool IsSynchronized => false;
+
+			public object SyncRoot => this;
+
+			public void CopyTo(Array array, int index)
+			{
+				foreach (var item in _wrapped)
+				{
+					array.SetValue(item, index++);
+				}
+			}
+
+			public IEnumerator GetEnumerator() => _wrapped.GetEnumerator();
 		}
 	}
 }
