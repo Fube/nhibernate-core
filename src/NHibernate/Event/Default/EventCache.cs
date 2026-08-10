@@ -7,11 +7,11 @@ namespace NHibernate.Event.Default
 {
 	public class EventCache : IDictionary
 	{
-		private IDictionary<object, object> entityToCopyMap = IdentityMap<object, object>.Instantiate(10);
+		private IDictionary<object, object> entityToCopyMap = IdentityMapUtils.Instantiate<object, object>(10);
 		// key is an entity involved with the operation performed by the listener;
 		// value can be either a copy of the entity or the entity itself
 	
-		private IDictionary<object, object> entityToOperatedOnFlagMap = IdentityMap<object, object>.Instantiate(10);
+		private IDictionary<object, object> entityToOperatedOnFlagMap = IdentityMapUtils.Instantiate<object, object>(10);
 		// key is an entity involved with the operation performed by the listener;
 		// value is a flag indicating if the listener explicitly operates on the entity
 		

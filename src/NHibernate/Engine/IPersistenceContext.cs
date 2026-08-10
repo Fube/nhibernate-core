@@ -39,12 +39,18 @@ namespace NHibernate.Engine
 
 		/// <summary> Get the mapping from key value to entity instance</summary>
 		IDictionary<EntityKey, object> EntitiesByKey { get; }
+		
+		/// <summary> Get the mapping from entity instance to entity entry</summary>
+		IDictionary EntityEntries { get; }
 
 		/// <summary> Get the mapping from entity instance to entity entry</summary>
-		IDictionary<object, object> EntityEntries { get; }
+		internal IDictionary<object, object> EntityEntriesTyped { get; }
+		
+		/// <summary> Get the mapping from collection instance to collection entry</summary>
+		IDictionary CollectionEntries { get; }
 
 		/// <summary> Get the mapping from collection instance to collection entry</summary>
-		IDictionary<object, object> CollectionEntries { get; }
+		internal IDictionary<object, object> CollectionEntriesTyped { get; }
 
 		/// <summary> Get the mapping from collection key to collection instance</summary>
 		IDictionary<CollectionKey, IPersistentCollection> CollectionsByKey { get; }

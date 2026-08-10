@@ -6,6 +6,11 @@ using System.Runtime.Serialization;
 namespace NHibernate.Util;
 
 /// <summary>
+/// A read-only view of a dictionary. Dispose it as soon as possible.
+/// </summary>
+internal interface ISnapshotView<TKey, TValue> : IReadOnlyCollection<KeyValuePair<TKey, TValue>>, IDisposable;
+
+/// <summary>
 /// A dictionary with whose entries are sequenced based on the order in which they were
 /// added or modified and implements snapshotting with copy-on-write.
 /// </summary>
@@ -16,7 +21,7 @@ namespace NHibernate.Util;
 /// <typeparam name="TKey">The type of the keys in the dictionary.</typeparam>
 /// <typeparam name="TValue">The type of the values in the dictionary.</typeparam>
 [Serializable]
-internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IDeserializationCallback
+internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TKey, TValue>, IDictionary, IDeserializationCallback
 	where TKey : notnull
 {
 	/// <summary>
@@ -241,9 +246,15 @@ internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TK
 		}
 		set => SetCore(key, value, throwIfExists: false);
 	}
+	
+	private KeyCollection KeysInternal => _keys ??= new KeyCollection(this);
+	
+	private ValueCollection ValuesInternal => _valuesView ??= new ValueCollection(this);
 
-	public ICollection<TKey> Keys => _keys ??= new KeyCollection(this);
+	public ICollection<TKey> Keys => KeysInternal;
+	
 	public ICollection<TValue> Values => _valuesView ??= new ValueCollection(this);
+	
 	public bool IsReadOnly => false;
 
 	public void Add(TKey key, TValue value) => SetCore(key, value, throwIfExists: true);
@@ -670,16 +681,16 @@ internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TK
 		_version = versionBefore;
 	}
 
-	private sealed class KeyCollection : ICollection<TKey>
+	private sealed class KeyCollection : ICollection<TKey>, ICollection
 	{
 		private readonly SequencedSnapshotDictionary<TKey, TValue> _owner;
 
 		public KeyCollection(SequencedSnapshotDictionary<TKey, TValue> owner) => _owner = owner;
 
 		public int Count => _owner.Count;
-		public bool IsReadOnly => true;
+		bool ICollection<TKey>.IsReadOnly => true;
 
-		public bool Contains(TKey item) => _owner.ContainsKey(item);
+		bool ICollection<TKey>.Contains(TKey item) => _owner.ContainsKey(item);
 
 		public void CopyTo(TKey[] array, int arrayIndex)
 		{
@@ -730,21 +741,27 @@ internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TK
 
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-		public void Add(TKey item) => throw new NotSupportedException("Keys collection is read-only.");
-		public void Clear() => throw new NotSupportedException("Keys collection is read-only.");
-		public bool Remove(TKey item) => throw new NotSupportedException("Keys collection is read-only.");
+		void ICollection<TKey>.Add(TKey item) => throw new NotSupportedException("Keys collection is read-only.");
+		void ICollection<TKey>.Clear() => throw new NotSupportedException("Keys collection is read-only.");
+		bool ICollection<TKey>.Remove(TKey item) => throw new NotSupportedException("Keys collection is read-only.");
+
+		void ICollection.CopyTo(Array array, int index) => _owner.KeyCopyTo(array, index);
+
+		bool ICollection.IsSynchronized => false;
+
+		object ICollection.SyncRoot => _owner;
 	}
 
-	private sealed class ValueCollection : ICollection<TValue>
+	private sealed class ValueCollection : ICollection<TValue>, ICollection
 	{
 		private readonly SequencedSnapshotDictionary<TKey, TValue> _owner;
 
 		public ValueCollection(SequencedSnapshotDictionary<TKey, TValue> owner) => _owner = owner;
 
 		public int Count => _owner.Count;
-		public bool IsReadOnly => true;
+		bool ICollection<TValue>.IsReadOnly => true;
 
-		public bool Contains(TValue item)
+		bool ICollection<TValue>.Contains(TValue item)
 		{
 			var valueComparer = EqualityComparer<TValue>.Default;
 			
@@ -808,9 +825,14 @@ internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TK
 
 		IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-		public void Add(TValue item) => throw new NotSupportedException("Values collection is read-only.");
-		public void Clear() => throw new NotSupportedException("Values collection is read-only.");
-		public bool Remove(TValue item) => throw new NotSupportedException("Values collection is read-only.");
+		void ICollection<TValue>.Add(TValue item) => throw new NotSupportedException("Values collection is read-only.");
+		void ICollection<TValue>.Clear() => throw new NotSupportedException("Values collection is read-only.");
+		bool ICollection<TValue>.Remove(TValue item) => throw new NotSupportedException("Values collection is read-only.");
+
+		void ICollection.CopyTo(Array array, int index) => _owner.ValueCopyTo(array, index);
+
+		bool ICollection.IsSynchronized => false;
+		object ICollection.SyncRoot => _owner;
 	}
 
 	/// <summary>
@@ -908,5 +930,290 @@ internal sealed class SequencedSnapshotDictionary<TKey, TValue> : IDictionary<TK
 			h ^= h >> 16;
 		}
 		return (int)(h & (uint)(bucketCount - 1));
+	}
+	
+	// --- IDictionary explicit members ---
+	bool ICollection.IsSynchronized => false;
+
+	object ICollection.SyncRoot => this;
+
+	bool IDictionary.IsFixedSize => false;
+
+	bool IDictionary.IsReadOnly => false;
+
+	ICollection IDictionary.Keys => KeysInternal;
+
+	ICollection IDictionary.Values => ValuesInternal;
+
+	object IDictionary.this[object key]
+	{
+		get
+		{
+			if (IsCompatibleKey(key))
+			{
+				if (TryGetValue((TKey)key, out var value))
+				{
+					return value;
+				}
+			}
+
+			return null;
+		}
+		set
+		{
+			if (key == null)
+			{
+				throw new ArgumentNullException(nameof(key));
+			}
+			
+			if (default(TKey) != null && value == null)
+			{
+				throw new ArgumentNullException(nameof(value));
+			}
+
+			try
+			{
+				var tempKey = (TKey)key;
+				try
+				{
+					this[tempKey] = (TValue)value!;
+				}
+				catch (InvalidCastException)
+				{
+					throw new ArgumentException(nameof(value));
+				}
+			}
+			catch (InvalidCastException)
+			{
+				throw new ArgumentException(nameof(key));
+			}
+		}
+	}
+
+	private static bool IsCompatibleKey(object key)
+	{
+		if (key == null)
+		{
+			throw new ArgumentNullException(nameof(key));
+		}
+		return key is TKey;
+	}
+
+	void IDictionary.Add(object key, object value)
+	{
+		if (key == null)
+		{
+			throw new ArgumentNullException(nameof(key));
+		}
+
+		if (default(TKey) != null && value == null)
+		{
+			throw new ArgumentNullException(nameof(value));
+		}
+
+		try
+		{
+			var tempKey = (TKey)key;
+
+			try
+			{
+				Add(tempKey, (TValue)value!);
+			}
+			catch (InvalidCastException)
+			{
+				throw new ArgumentException(nameof(value));
+			}
+		}
+		catch (InvalidCastException)
+		{
+			throw new ArgumentException(nameof(key));
+		}
+	}
+
+	bool IDictionary.Contains(object key)
+	{
+		if (IsCompatibleKey(key))
+		{
+			return ContainsKey((TKey)key);
+		}
+
+		return false;
+	}
+
+	IDictionaryEnumerator IDictionary.GetEnumerator() => new DictionaryEnumerator(this);
+
+	private sealed class DictionaryEnumerator : IDictionaryEnumerator
+	{
+		private readonly SequencedSnapshotDictionary<TKey, TValue> _owner;
+		private readonly int _version;
+		private int _current;
+
+		public DictionaryEnumerator(SequencedSnapshotDictionary<TKey, TValue> owner)
+		{
+			_owner = owner;
+			_version = owner._version;
+			_current = owner._orderHead;
+		}
+
+		public bool MoveNext()
+		{
+			if (_current < 0)
+			{
+				return false;
+			}
+			
+			Entry = new DictionaryEntry(_owner._slots[_current].Key, _owner._values[_current]);
+
+			if (_version != _owner._version)
+			{
+				throw new InvalidOperationException("Collection was modified; enumeration operation may not execute.");
+			}
+
+			_current = _owner._orderNext[_current];
+			
+			return true;
+		}
+
+		public void Reset()
+		{
+			if (_version != _owner._version)
+			{
+				throw new InvalidOperationException("Dictionary has changed. Cannot reset.");
+			}
+
+			_current = _owner._orderHead;
+		}
+
+		public object Current => Entry;
+		
+		public object Key => Entry.Key;
+		
+		public object Value => Entry.Value;
+		
+		public DictionaryEntry Entry { get; private set; }
+	}
+
+	void IDictionary.Remove(object key)
+	{
+		if (IsCompatibleKey(key))
+		{
+			Remove((TKey)key);
+		}
+	}
+	
+	void ICollection.CopyTo(Array array, int index) => KeyCopyTo(array, index);
+
+	private void KeyCopyTo(Array array, int index)
+	{
+		if (array == null)
+		{
+			throw new ArgumentNullException(nameof(array));
+		}
+
+		if (array.Rank != 1)
+		{
+			throw new ArgumentException("Multi dimension array not supported", nameof(array));
+		}
+
+		if (array.GetLowerBound(0) != 0)
+		{
+			throw new ArgumentException("Non-zero lower bound not supported", nameof(array));
+		}
+
+		if ((uint)index > (uint)array.Length)
+		{
+			throw new  ArgumentOutOfRangeException(nameof(index));
+		}
+
+		if (array.Length - index < Count)
+		{
+			throw new ArgumentException("The array is too small to copy the elements.", nameof(array));
+		}
+
+		if (array is TKey[] keys)
+		{
+			var destinationIndex = index;
+			for (var sourceIndex = _orderHead; sourceIndex >= 0; sourceIndex = _orderNext[sourceIndex])
+			{
+				keys[destinationIndex++] = _slots[sourceIndex].Key;
+			}
+			
+			return;
+		}
+
+		if (array is not object[] objects)
+		{
+			throw new ArgumentException("Invalid array type", nameof(array));
+		}
+
+		try
+		{
+			var destinationIndex = index;
+			for (var sourceIndex = _orderHead; sourceIndex >= 0; sourceIndex = _orderNext[sourceIndex])
+			{
+				objects[destinationIndex++] = _slots[sourceIndex].Key;
+			}
+		}
+		catch (ArrayTypeMismatchException)
+		{
+			throw new ArgumentException("Invalid array type", nameof(array));
+		}
+	}
+	
+	private void ValueCopyTo(Array array, int index)
+	{
+		if (array == null)
+		{
+			throw new ArgumentNullException(nameof(array));
+		}
+
+		if (array.Rank != 1)
+		{
+			throw new ArgumentException("Multi dimension array not supported", nameof(array));
+		}
+
+		if (array.GetLowerBound(0) != 0)
+		{
+			throw new ArgumentException("Non-zero lower bound not supported", nameof(array));
+		}
+
+		if ((uint)index > (uint)array.Length)
+		{
+			throw new  ArgumentOutOfRangeException(nameof(index));
+		}
+
+		if (array.Length - index < Count)
+		{
+			throw new ArgumentException("The array is too small to copy the elements.", nameof(array));
+		}
+
+		if (array is TValue[] value)
+		{
+			var destinationIndex = index;
+			for (var sourceIndex = _orderHead; sourceIndex >= 0; sourceIndex = _orderNext[sourceIndex])
+			{
+				value[destinationIndex++] = _values[sourceIndex];
+			}
+			
+			return;
+		}
+
+		if (array is not object[] objects)
+		{
+			throw new ArgumentException("Invalid array type", nameof(array));
+		}
+
+		try
+		{
+			var destinationIndex = index;
+			for (var sourceIndex = _orderHead; sourceIndex >= 0; sourceIndex = _orderNext[sourceIndex])
+			{
+				objects[destinationIndex++] = _values[sourceIndex];
+			}
+		}
+		catch (ArrayTypeMismatchException)
+		{
+			throw new ArgumentException("Invalid array type", nameof(array));
+		}
 	}
 }

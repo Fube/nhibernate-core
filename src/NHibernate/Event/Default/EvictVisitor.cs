@@ -49,7 +49,7 @@ namespace NHibernate.Event.Default
 		private void EvictCollection(IPersistentCollection collection)
 		{
 			CollectionEntry ce = null;
-			if (Session.PersistenceContext.CollectionEntries.TryGetValue(collection, out var tce))
+			if (Session.PersistenceContext.CollectionEntriesTyped.TryGetValue(collection, out var tce))
 			{
 				ce = (CollectionEntry) tce;
 			}

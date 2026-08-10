@@ -126,7 +126,7 @@ namespace NHibernate.Engine.Loading
 			CollectionLoadContext context = null;
 			if (collectionLoadContexts == null)
 			{
-				collectionLoadContexts = IdentityMap<DbDataReader, CollectionLoadContext>.Instantiate(8);
+				collectionLoadContexts = IdentityMapUtils.Instantiate<DbDataReader, CollectionLoadContext>(8);
 			}
 			else
 			{

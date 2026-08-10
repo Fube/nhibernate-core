@@ -90,7 +90,7 @@ namespace NHibernate.Event.Default
 		{
 			log.Debug("Processing unreferenced collections");
 
-			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntriesTyped);
 			foreach (var me in list)
 			{
 				var ce = (CollectionEntry) me.Value;
@@ -104,7 +104,7 @@ namespace NHibernate.Event.Default
 
 			log.Debug("Scheduling collection removes/(re)creates/updates");
 
-			list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
+			list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntriesTyped);
 			ActionQueue actionQueue = session.ActionQueue;
 			foreach (var me in list)
 			{
@@ -147,11 +147,7 @@ namespace NHibernate.Event.Default
 			// It is safe because of how IdentityMap implements entrySet()
 			var source = @event.Session;
 
-<<<<<<< HEAD
-			var list = IdentityMap.GetEntries(source.PersistenceContext.EntityEntries);
-=======
-			var list = IdentityMap<object, object>.GetEntries(source.PersistenceContext.EntityEntries);
->>>>>>> 9cc580e0a (Replaced IdentityMap with IdentityMap<TK, TV>)
+			var list = IdentityMap<object, object>.GetEntries(source.PersistenceContext.EntityEntriesTyped);
 			foreach (var me in list)
 			{
 				// Update the status of the object and if necessary, schedule an update
@@ -178,11 +174,7 @@ namespace NHibernate.Event.Default
 			// and reset reached, doupdate, etc.
 			log.Debug("dirty checking collections");
 
-<<<<<<< HEAD
-			var list = IdentityMap.GetEntries(session.PersistenceContext.CollectionEntries);
-=======
-			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntries);
->>>>>>> 9cc580e0a (Replaced IdentityMap with IdentityMap<TK, TV>)
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.CollectionEntriesTyped);
 			foreach (var entry in list)
 			{
 				((CollectionEntry) entry.Value).PreFlush((IPersistentCollection) entry.Key);
@@ -197,11 +189,7 @@ namespace NHibernate.Event.Default
 			log.Debug("processing flush-time cascades");
 
 			var anything = Anything;
-<<<<<<< HEAD
-			var list = IdentityMap.GetEntries(session.PersistenceContext.EntityEntries);
-=======
-			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.EntityEntries);
->>>>>>> 9cc580e0a (Replaced IdentityMap with IdentityMap<TK, TV>)
+			var list = IdentityMap<object, object>.GetEntries(session.PersistenceContext.EntityEntriesTyped);
 			//safe from concurrent modification because of how entryList() is implemented on IdentityMap
 			foreach (var me in list)
 			{
@@ -295,7 +283,7 @@ namespace NHibernate.Event.Default
 
 			// NH Different implementation: In NET an iterator is immutable;
 			// we need something to hold the persistent collection to remove, and it must be less intrusive as possible
-			var cEntries = persistenceContext.CollectionEntries;
+			var cEntries = persistenceContext.CollectionEntriesTyped;
 			List<IPersistentCollection> keysToRemove = new List<IPersistentCollection>(cEntries.Count);
 			foreach (var me in cEntries)
 			{

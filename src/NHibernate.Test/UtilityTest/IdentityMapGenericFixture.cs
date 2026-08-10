@@ -39,7 +39,7 @@ namespace NHibernate.Test.UtilityTest
 
 		protected virtual IDictionary<object, object> GetIdentityMap()
 		{
-			return IdentityMap<object, object>.Instantiate(10);
+			return IdentityMapUtils.Instantiate<object, object>(10);
 		}
 
 		/// <summary>

@@ -116,11 +116,11 @@ namespace NHibernate.Engine
 			entitiesByUniqueKey = new Dictionary<EntityUniqueKey, object>(InitCollectionSize);
 			proxiesByKey = new Dictionary<EntityKey, INHibernateProxy>(InitCollectionSize);
 			entitySnapshotsByKey = new Dictionary<EntityKey, object>(InitCollectionSize);
-			entityEntries = IdentityMap<object, object>.InstantiateSequenced(InitCollectionSize);
-			collectionEntries = IdentityMap<object, object>.InstantiateSequenced(InitCollectionSize);
+			entityEntries = IdentityMapUtils.InstantiateSequenced<object, object>(InitCollectionSize);
+			collectionEntries = IdentityMapUtils.InstantiateSequenced<object, object>(InitCollectionSize);
 			collectionsByKey = new Dictionary<CollectionKey, IPersistentCollection>(InitCollectionSize);
-			arrayHolders = IdentityMap<object, IPersistentCollection>.Instantiate(InitCollectionSize);
-			parentsByChild = IdentityMap<object, object>.Instantiate(InitCollectionSize);
+			arrayHolders = IdentityMapUtils.Instantiate<object, IPersistentCollection>(InitCollectionSize);
+			parentsByChild = IdentityMapUtils.Instantiate<object, object>(InitCollectionSize);
 			nullifiableEntityKeys = new HashSet<EntityKey>();
 			InitTransientState();
 		}
@@ -188,16 +188,16 @@ namespace NHibernate.Engine
 		}
 
 		/// <summary> Get the mapping from entity instance to entity entry</summary>
-		public IDictionary<object, object> EntityEntries
-		{
-			get { return entityEntries; }
-		}
+		public IDictionary EntityEntries => (IDictionary) entityEntries;
+		
+		/// <summary> Get the mapping from entity instance to entity entry</summary>
+		IDictionary<object, object> IPersistenceContext.EntityEntriesTyped => entityEntries;
 
 		/// <summary> Get the mapping from collection instance to collection entry</summary>
-		public IDictionary<object, object> CollectionEntries
-		{
-			get { return collectionEntries; }
-		}
+		public IDictionary CollectionEntries => (IDictionary) collectionEntries;
+
+		/// <summary> Get the mapping from collection instance to collection entry</summary>
+		IDictionary<object, object> IPersistenceContext.CollectionEntriesTyped => collectionEntries;
 
 		/// <summary> Get the mapping from collection key to collection instance</summary>
 		public IDictionary<CollectionKey, IPersistentCollection> CollectionsByKey
@@ -1456,7 +1456,7 @@ namespace NHibernate.Engine
 			// collections to this session, as well as the EntityEntry and
 			// CollectionEntry instances; these associations are transient
 			// because serialization is used for different things.
-			parentsByChild = IdentityMap<object, object>.Instantiate(InitCollectionSize);
+			parentsByChild = IdentityMapUtils.Instantiate<object, object>(InitCollectionSize);
 
 			// OnDeserialization() must be called manually on all Dictionaries and Hashtables,
 			// otherwise they are still empty at this point (the .NET deserialization code calls
